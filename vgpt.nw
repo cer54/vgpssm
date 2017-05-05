@@ -1,0 +1,766 @@
+\documentclass{article}
+\renewcommand{\rmdefault}{psbx}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{textcomp}
+\usepackage{eulervm}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amstext}
+\usepackage{noweb}
+\usepackage{bm}
+\usepackage{hyperref}
+
+\providecommand{\tabularnewline}{\\}
+
+% BEGIN syntax highlighting using the listing package
+\usepackage{color}
+\definecolor{darkgreen}{rgb}{0,.5,.1}
+\definecolor{darkred}{rgb}{.5,.1,.1}
+\definecolor{darkblue}{rgb}{0,.1,.4}
+\usepackage{listings}
+\usepackage{graphicx}
+\lstset{language=Matlab} % determine language
+\lstset{deletekeywords={mean,cov}}
+\lstset{morekeywords={repmat,varargout,true,ischar,str2func,isfield,func2str,numel,isa}}
+% basic font settings
+\lstset{basicstyle=\small\ttfamily}
+% line numbers
+\lstset{numbers=left,numberstyle=\color{cyan},stepnumber=1,numbersep=5pt}
+% comments
+\lstset{commentstyle=\color{darkgreen}}
+% strings
+\lstset{stringstyle=\color{darkred},showstringspaces=false}
+% keywords
+\lstset{keywordstyle=\color{darkblue}}
+\lstset{emph={break,case,catch,continue,else,elseif,end,for,function,global,if,otherwise,persistent,return,switch,try,while},emphstyle=\color{blue}}
+\lstset{basewidth={0.55em,0.45em}}
+\lstset{xleftmargin=1.1em}
+\lstset{aboveskip=0em}
+\lstset{belowskip=-2em}
+\lstset{showlines=false}
+%% \begin{lstlisting}
+%%    Matlab code
+%% \end{lstlisting}
+% END syntax highlighting using the listing package
+
+\setlength{\textwidth}{166mm}
+\setlength{\textheight}{245mm}
+\setlength{\oddsidemargin}{0mm}
+\setlength{\topmargin}{-25mm}
+\setlength{\parindent}{0mm}
+\setlength{\parskip}{1mm}
+
+
+\def\nwendcode{\endtrivlist \endgroup \vfil\penalty400\vfilneg}
+\let\nwdocspar=\smallbreak
+
+\title{Variational Gaussian Process Timeseries Inference}
+\author{Carl Edward Rasmussen}
+\date{January 8th 2016}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Variational inference in nonlinear dynamical models.
+\end{abstract}
+
+The model is specified by
+%
+\begin{alignat}{2}
+f_e({\bf\tilde x})\;&\sim\;{\cal GP}\big(0, k_e(\cdot,\cdot)\big),\qquad && \text{where\ \ }
+{\bf \tilde x}\;=\;({\bf x}, {\bf u}) \text{\ \ and\ \ } e\;=\;1,\ldots, E,\\
+{\bf x}_t|{\bf f}_t\;&\sim\;{\cal N}({\bf x}_t|{\bf f}_t,Q),&&  Q \text{\ \ diagonal},\\
+{\bf y}_t|{\bf x}_t\;&\sim\;{\cal N}({\bf y}_t|C{\bf x}_t,R),&&
+\end{alignat}
+%
+and ${\bf u}_t, {\bf y}_t, t=1,\ldots,T$ are the control inputs and
+measurements (both observed), and ${\bf f}_t, t=2,\ldots,T$ and ${\bf
+x}_t, t=1,\ldots,T$ are unobserved, latent variables. The GPs
+implement the non-linear transition from one time point to the next
+conditioned on the state ${\bf x}_{t-1}$ and all the previous transition
+pairs ${\bf f}_{2:t-1},{\bf x}_{1:t-2}$
+%
+\[
+{\bf f}_t({\bf x}_{t-1})\;=\;p({\bf f}_t|{\bf f}_{2:t-1},{\bf x}_{1:t-1}),
+\text{\ \ where\ \ }t\;=\;2,\ldots,T.
+\]
+%
+The joint probability of all the variables is given by the product of $T$ observation probabilities and $T-1$ transition probabilities
+%
+\[
+p({\bf y},{\bf x},{\bf f})\;=\;\prod_{t=1}^Tp({\bf y}_t|{\bf x}_t)
+\prod_{t=2}^Tp({\bf x}_t|{\bf f}_t)p({\bf f}_t|{\bf f}_{1:t-1},{\bf x}_{1:t-1}).
+\]
+%
+Each GP is augmented with a set of $M$ inducing inputs ${\bf z}$ and corresponding targets
+${\bf v}$ such that ${\bf v}_e = f_e({\bf z}_e)$. The augmented joint is
+%
+\[
+p({\bf y},{\bf x},{\bf f},{\bf v})\;=\;p({\bf y}|{\bf x})
+p({\bf x},{\bf f}|{\bf v})p({\bf v}).
+\]
+%
+Exact inference in the model is intractable, instead we fit the model by optimizing
+a variational lower bound based on an approximating distribution $q$, which we chose to have
+the following form
+%
+\[
+q({\bf x},{\bf f},{\bf v})\;=\;
+q({\bf v})q({\bf x})\prod_{t=2}^Tp({\bf f}_t|{\bf f}_{1:t-1},{\bf x}_{1:t-1},{\bf v}),
+\text{\ \ where\ \ }q({\bf x})\;=\;{\cal N}(\mu_x,\Sigma_x),
+\]
+%
+the assumptions being that 1) the joint on ${\bf v}$ and ${\bf x}$
+factorizes, 2) that $q({\bf x})$ is Gaussian and 3) that the conditional
+$q({\bf f}|{\bf x},{\bf v})$ is chosen to be equal to the conditional
+\emph{prior}. Generally, we would expect the variational bound to be
+tight if the approximating distribution is close to the
+\emph{posterior}, but for tractability we are forced to set the
+conditional $q({\bf f}|{\bf x},{\bf v})$ to be equal to the conditional
+prior. This may still be a good approximation, since we are
+conditioning on the inducing targets ${\bf v}$. If the inducing
+targets are able to capture the properties of the posterior, then the
+bound may still be good.
+
+The variational log marginal likelihood lower bound is a single time series
+(contributions for multiple time series are simply added together) 
+\begin{equation}
+\begin{split}
+{\cal L}({\bf y}|q({\bf v}),q({\bf x}),\theta)\;=\;
+&-KL(q({\bf v})||p({\bf v})) + H(q({\bf x}))
++\sum_{t=1}^T\langle\log p({\bf y}_t|{\bf x}_t)\rangle_{q({\bf x}_t)}\\
+&+\sum_{t=2}^T-\tfrac{1}{2}{tr}(Q^{-1}\langle B_{t-1}\rangle_{q({\bf x}_{t-1})})
++\langle\log{\cal N}({\bf x}_t|A_{t-1}{\bf v},Q)\rangle_{q({\bf v}),q({\bf x}_{t-1:t})},
+\end{split}
+\label{eq:bound1}
+\end{equation}
+%
+with the following definitions
+\[
+A_{t-1}\;=\;k({\bf x}_{t-1},{\bf z})K^{-1},\text{\ \ and\ \ }
+B_{t-1}\;=\;k({\bf x}_{t-1},{\bf x}_{t-1})
+-k({\bf x}_{t-1},{\bf z})K^{-1}k({\bf z},{\bf x}_{t-1}).
+\]
+A free form optimization of this bound wrt $q({\bf v})$ yields independent Gaussians
+for each GP
+\[
+q^*({\bf v}_e)\;=\;{\cal N}\big(\boldsymbol\mu_e=K_e(K_e+\Psi_{2e})^{-1}\Psi_{1e},\;
+\Sigma_e=K_e(K_e+\Psi_{2e})^{-1}K_e\big),
+\]
+where $K_e=k_e({\bf z}_e,{\bf z}_e)$ and we have defined the expectations
+%
+\begin{equation}
+\Psi_1\;=\;\sum_{t=2}^T
+\langle k({\bf z},{\bf x}_{t-1})Q^{-1}{\bf x}_t\rangle_{q({\bf x}_{t-1:t})},
+\text{\ \ and\ \ }
+\Psi_2\;=\;\sum_{t=2}^T\langle
+k({\bf z},{\bf x}_{t-1})Q^{-1}k({\bf x}_{t-1},{\bf z})\rangle_{q({\bf x}_{t-1})},
+\label{eq:Psi12}
+\end{equation}
+%
+of size $M\times E$ and $M\times M\times E$ respectively.
+
+Plugging the optimal $q^*({\bf v})$ back into the bound eq.~(\ref{eq:bound1}), we get
+%
+\begin{equation}
+\begin{split}
+{\cal L}({\bf y}|q({\bf x}),\theta)\;=\;&-KL(q^*({\bf v})||p({\bf v}))+H(q({\bf x})) 
++\sum_{t=1}^T\langle\log p({\bf y}_t|{\bf x}_t)\rangle_{q({\bf x}_t)}\\
+&+\sum_{t=2}^T-\tfrac{1}{2}\langle{tr}\big(Q^{-1}
+(B_{t-1}+A_{t-1}\Sigma A_{t-1})\big)\rangle_{q({\bf x}_{t-1})}
++\langle\log{\cal N}({\bf x}_t|A_{t-1}\boldsymbol\mu,Q)\rangle_{q({\bf x}_{t-1:t})}.
+\end{split}
+\label{eq:bound2}
+\end{equation}
+%
+Note that except for the entropy $H(q({\bf x}))$, the bound only
+depends on $q({\bf x})$ through its pair-wise marginals. This means
+that the model will be identical for all $q({\bf x})$ which have the
+same pair-wise marginals, except for an offset in the bound which
+depends on the entropy. We will chose $q({\bf x})$ to be Markovian, ie
+the precision $\Sigma^{-1}_x$ is block tri-diagonal.
+
+\subsection*{Transition model}
+
+Writing out each term from the transition model from eq.~(\ref{eq:bound2}) in detail
+%
+\begin{equation}
+-{\rm KL}(q^*({\bf v})||p({\bf v}))\;=\;-\tfrac{1}{2}\sum_{e=1}^E
+{\rm tr}(K_e+\Psi_{2e})^{-1}K_e +
+\boldsymbol\mu_e^\top K_e^{-1}\boldsymbol\mu_e-M
+-\log|(K_e+\Psi_{2e})^{-1}K_e|,
+\label{eq:KL}
+\end{equation}
+%
+and
+\begin{equation}
+\begin{split}
+-\tfrac{1}{2}\sum_{t=2}^T{\rm tr}Q^{-1}
+\langle B_{t-1}\rangle_{q({\rm x}_{t-1})}\;=&\;
+-\tfrac{T-1}{2}{\rm tr}Q^{-1}+\tfrac{1}{2}\sum_{t=2}^T
+{\rm tr}K^{-1}\langle
+k({\bf z},{\bf x}_{t-1})Q^{-1}k({\bf x}_{t-1},{\bf z})\rangle_{q(x_{t-1})}\\
+=&\;\tfrac{1}{2}\sum_{e=1}^E{\rm tr}K_e^{-1}\Psi_{2e}
+-\tfrac{T-1}{2}{\rm tr}Q^{-1},
+\end{split}
+\end{equation}
+%
+and
+%
+\begin{equation}
+\begin{split}
+-\tfrac{1}{2}\sum_{t=2}^T{\rm tr}Q^{-1}\langle
+A_{t-1}\Sigma A_{t-1}\rangle_{q(x_{t-1})}\;=\;&
+-\tfrac{1}{2}\sum_{t=2}^T{\rm tr}\big(\Sigma K^{-1}\langle k(x_{t-1},{\bf
+  z})Q^{-1}k({\bf z},x_{t-1})\rangle_{q(x_{t-1})}K^{-1}\big)\\
+=\;&-\tfrac{1}{2}\sum_{e=1}^E{\rm tr}(K_e+\Psi_{2e})^{-1}\Psi_{2e},
+\end{split}
+\end{equation}
+%
+and
+%
+\begin{equation}
+\begin{split}
+\sum_{t=2}^T\langle\log{\cal N}&({\bf x}_t|A_{t-1}\boldsymbol\mu,Q)\rangle_{q(x_{t-1:t})}\\
+=\;&-\tfrac{(T-1)E}{2}\log(2\pi)-\tfrac{T-1}{2}\log|Q|-\tfrac{1}{2}\smash{\sum_{t=2}^T}
+\langle ({\bf x}_t-A_{t-1}\boldsymbol\mu)^\top Q^{-1}
+({\bf x}_t-A_{t-1}\boldsymbol\mu)\rangle_{q(x_{t-1:t})}\\
+=\;&-\tfrac{(T-1)E}{2}\log(2\pi)-\tfrac{T-1}{2}\log|Q|-\tfrac{1}{2}{\rm tr}
+Q^{-1}\sum_{t=2}^T\langle {\bf x}_{t}^\top{\bf x}_t\rangle_{q(x_t)}
++\boldsymbol\mu^\top\langle{\bf x}_tQ^{-1}A_{t-1}\rangle_{q(x_{t-1:t})}\\
+&{\hskip 60mm}-\tfrac{1}{2}\boldsymbol\mu^\top K^{-1}\langle k({\bf x}_{t-1},{\bf z})
+Q^{-1}k({\bf z},{\bf x}_{t-1})\rangle_{q(x_{t-1})}K^{-1}\boldsymbol\mu\\
+=\;&-\tfrac{(T-1)E}{2}\log(2\pi)-\tfrac{T-1}{2}\log|Q|-\tfrac{1}{2}{\rm tr}
+Q^{-1}\sum_{t=2}^T\langle{\bf x}_{t}^\top{\bf x}_t\rangle_{q(x_t)}-\tfrac{1}{2}
+\boldsymbol\mu^\top K^{-1}\Psi_2K^{-1}\boldsymbol\mu+\boldsymbol\mu^\top K^{-1}\Psi_1.
+\end{split}
+\label{eq:trans}
+\end{equation}
+%
+Pulling together all terms from eq.~(\ref{eq:KL}-\ref{eq:trans}) we get the following
+contribution
+%
+\begin{equation}
+\begin{split}
+&\tfrac{1}{2}\smash{\sum_{e=1}^E}\log|(K_e+\Psi_{2e})^{-1}K_e|
++{\rm tr}K_e^{-1}\Psi_{2e}+\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}\\
+&-\tfrac{1}{2}{\rm tr}Q^{-1}\sum_{t=2}^T
+(I+\boldsymbol\mu_t^\top\boldsymbol\mu_t+\Sigma_{t,t})
+-\tfrac{T-1}{2}\log|Q|-\tfrac{(T-1)E}{2}\log(2\pi).
+\end{split}
+\end{equation}
+%
+
+\subsection*{Entropy}
+
+The entropy of Markovian Gaussian with specified $E$ dimensional marginals and
+$2E$ dimensional consequtive pair-wise marginals and marginals is given by
+%
+\begin{equation}
+{\cal H}(q({\bf x}))\;=\;\tfrac{TE}{2}(1+\log(2\pi))+
+\tfrac{1}{2}\sum_{t=2}^T\log|\Sigma_{t-1:t,t-1:t}|
+-\tfrac{1}{2}\sum_{t=2}^{T-1}\log|\Sigma_t|
+\end{equation}
+%
+<<entropy>>=
+function [L dLd dLo] = gaussMarkovEntropy(d, o);
+[E, E, T] = size(d); dd = zeros(T,1); dp = zeros(T-1,1); 
+for t = 1:T, dd(t) = det(d(:,:,t)); end                      % det of diagonals
+for t = 1:T-1, dp(t) = dd(t)*det(d(:,:,t+1)-o(:,:,t)'/d(:,:,t)*o(:,:,t)); end;
+L = E*T*(1+log(2*pi))/2 + sum(log(dp))/2 - sum(log(dd(2:T-1)))/2;     % entropy
+if nargout > 1                                              % want derivatives?
+  dLd = zeros(E,E,T); dLo = zeros(E,E,T-1);
+  for t = 1:T-1
+    dLd(:,:,t) = dLd(:,:,t) + inv(d(:,:,t)-o(:,:,t)/d(:,:,t+1)*o(:,:,t)')/2;
+    dLd(:,:,t+1) = inv(d(:,:,t+1)-o(:,:,t)'/d(:,:,t)*o(:,:,t))/2;
+    dLo(:,:,t) = -d(:,:,t)\o(:,:,t)/(d(:,:,t+1)-o(:,:,t)'/d(:,:,t)*o(:,:,t));
+  end
+  for t = 2:T-1, dLd(:,:,t) = dLd(:,:,t) - inv(d(:,:,t))/2; end
+end
+
+@
+
+\subsection*{Likelihood}
+
+The linear Gaussian log likelihood is
+%
+\begin{equation}
+\sum_{t=1}^T\langle\log p({\bf y}_t|{\bf x}_t)\rangle_{q({\bf x}_t)}\;=
+\;-\tfrac{DT}{2}\log(2\pi)-\tfrac{T}{2}\log|R|
+-\tfrac{1}{2}{\rm tr}R^{-1}\sum_{t=1}^T\big(({\bf y}-C\boldsymbol\mu_t)
+({\bf y}-C\boldsymbol\mu_t)^\top+C\Sigma_{t}C^\top\big).
+\end{equation}
+%
+Maximizing the log likelihood wrt observation noise covariance $R$ and the
+parameters $C$ yields:
+%
+\begin{equation}
+R^*\;=\;\tfrac{1}{T}\Big[\sum_{t=1}^T{\bf y}_t{\bf y}_t^\top-
+C^*\sum_{t=1}^T\boldsymbol\mu_t{\bf y}^\top\Big],\text{\ \ and\ \ }
+C^*\;=\;\sum_{t=1}^T{\bf y}_t\boldsymbol\mu_t^\top
+\Big[\sum_{t=1}^T\boldsymbol\mu_t\boldsymbol\mu_t^\top+\Sigma_{t,t}\Big]^{-1},
+\end{equation}
+%
+and the maximum attained is
+%
+\begin{equation}
+{\cal L}^*\;=\;-\tfrac{DT}{2}(1+\log(2\pi))-\tfrac{T}{2}\log|R^*|,
+\end{equation}
+%
+with derivatives
+%
+\begin{equation}
+\frac{{\cal L}^*}{\partial\boldsymbol\mu_t}\;=\;C^\top R^{-1}
+({\bf y}_t-C\boldsymbol\mu_t),\text{\ \ and\ \ }
+\frac{{\cal L}^*}{\partial\Sigma_{t,t}}\;=\;-\tfrac{1}{2}C^\top R^{-1}C,
+\text{\ \ evaluated at\ \ }C=C^*, \text{\ \ and\ \ }R=R^*.
+\end{equation}
+
+<<likelihood>>=
+function [L, R, C, dm, dS] = likelihood(y, qx)
+D = size(y{1},2); E = size(qx(1).m,1); T = sum(arrayfun(@(x)size(x.m,2),qx)); 
+N = size(y,2); yy = zeros(D); ym = zeros(D, E+1); mm = zeros(E+1);
+for n = 1:N
+  m = [qx(n).m' ones(size(qx(n).m,2),1)]; mm = mm + m'*m; ym = ym + y{n}'*m;
+  yy = yy + y{n}'*y{n}; mm(1:E,1:E) = mm(1:E,1:E) + sum(qx(n).Sd,3); 
+end
+C = ym/mm; R = (yy - C*ym')/T;
+L = -D*T*(1+log(2*pi))/2 - T*sum(log(diag(chol(R))));          % log likelihood
+if nargout > 3                                        % do we want derivatives?
+  dm = cell(N,1);
+  for n = 1:N,
+    dm{n} = C(:,1:E)'/R*(y{n}'-C*[qx(n).m; ones(1,size(qx(n).m,2))]);
+  end
+  dS = -C(:,1:E)'/R*C(:,1:E)/2;            % all dS identical, return once only
+end
+
+@
+
+\subsection*{The lower bound}
+
+Pulling together all terms
+%
+\begin{equation}
+\begin{split}
+{\cal L}(&{\bf y}|q({\bf x}),\theta)\;=\;
+\tfrac{1}{2}\smash{\sum_{e=1}^E}\log|(K_e+\Psi_{2e})^{-1}K_e|
++{\rm tr}K_e^{-1}\Psi_{2e}+\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}
++\tfrac{1}{2}\sum_{t=2}^T\log|\Sigma_{t-1:t,t-1:t}|\\
+&-\tfrac{1}{2}\sum_{t=2}^{T-1}\log|\Sigma_t|
+-\tfrac{1}{2}{\rm tr}Q^{-1}\sum_{t=2}^T
+(I+\boldsymbol\mu_t^\top\boldsymbol\mu_t+\Sigma_{t,t})
+-\tfrac{T-1}{2}\log|Q|-\tfrac{T}{2}\log|R^*|
+-\tfrac{(D-E)T}{2}-\tfrac{TD-E}{2}\log(2\pi).
+\end{split}
+\end{equation}
+
+<<lower bound>>=
+[L1, dnlml] = Psi(hyp, qx, z, u);
+T = sum(arrayfun(@(x)size(x.m,2),qx)); L2 = 0; L3 = 0; 
+dLd = cell(1,N); dLo = cell(1,N);
+for n = 1:N
+  L2 = L2 + sum(qx(n).m(:,2:end).^2,2) + diag(sum(qx(n).Sd(:,:,2:end),3));
+  [L dLd{n} dLo{n}] = gaussMarkovEntropy(qx(n).Sd, qx(n).So); L3 = L3 + L;
+end
+L5 = -exp(-2*[hyp(:).pn]) * (L2+T-N) / 2;
+L4 = -(T-N)*sum([hyp(:).pn])-(T-N)*E*log(2*pi)/2;
+[L6, R, C, dm, dS] = likelihood(y, qx);
+nlml = -L1-L5-L3-L4-L6;
+%keyboard
+@
+
+<<bound derivatives>>=
+for e = 1:E
+  dnlml.hyp(e).pn = dnlml.hyp(e).pn - exp(-2*hyp(e).pn)*(L2(e)+T-N)+T-N;
+end
+iQ = diag(exp(-2*[hyp(:).pn]));
+for n = 1:N
+  dnlml.qx(n).m(:,2:end) = dnlml.qx(n).m(:,2:end) + iQ*qx(n).m(:,2:end);
+  dnlml.qx(n).m = dnlml.qx(n).m - dm{n};
+  dnlml.qx(n).Sd(:,:,2:end) = bsxfun(@plus, dnlml.qx(n).Sd(:,:,2:end), iQ/2);
+  dnlml.qx(n).Sd = dnlml.qx(n).Sd - bsxfun(@plus, dS, dLd{n});
+  dnlml.qx(n).So = dnlml.qx(n).So - dLo{n};
+end
+
+out1 = nlml; out2 = dnlml; out3 = struct('C', C, 'R', R);    % rename outputs
+@
+
+<<predictions>>=
+[Psi1, Psi2] = Psi(hyp, qx, z, u);
+@
+
+<<vgpt.m>>=
+function [out1, out2, out3] = vgpt(p, data, x);
+<<usage>>
+
+N = length(p.qx); z = p.z; [M, F, E] = size(z); D = size(data(1).y,2); hyp = p.hyp;
+u = arrayfun(@(x)(x.u),data,'UniformOutput',false); [qx(1:N).m] = deal(p.qx(:).m);
+y = arrayfun(@(x)(x.y),data,'UniformOutput',false);
+for n = 1:N, [qx(n).Sd qx(n).So] = convert(p.qx(n).s); end % convert covariance
+
+if nargin == 2
+  <<lower bound>>
+  <<bound derivatives>>
+  <<revert covariances>>
+else
+  <<predictions>>
+end
+  
+<<Psi>>
+<<entropy>>
+<<likelihood>>
+<<convert>>
+<<revert>>
+<<maha>>
+@
+
+
+<<usage>>=
+% Variational GP Timeseries inference. Compute the nlml lower bound and its
+% derivative wrt hyp hyperparameters, qx distribution and z inducing inputs.  
+%
+% p                  parameter struct
+%   hyp     1 x E    GP hyperparameter struct
+%     l     F x 1    log length scale
+%     pn    1 x 1    log process noise std dev
+%   qx      1 x N    struct array for Gaussian q(x) distribution
+%     m     E x T_n  mean
+%     s  2ExE x T_n  representation of covariance
+%   z     M x F x E  inducing inputs
+% data      1 x N    data struct
+%   y     T_n x D    cell array of observations
+%   u     T_n x U    cell array of control inputs
+%
+% Copyright (C) 2016 by Carl Edward Rasmussen, 20160530.
+@
+
+\subsection*{The $\Psi$ function}
+
+In the implementation, a function {\tt Psi} handles the part of the (negative)
+log marginal likelihood which depends on the quantities $\Psi_1$ and $\Psi_2$:
+%
+\begin{equation}
+\psi\;=\;\tfrac{1}{2}\sum_{e=1}^E\log|K_e|-\log|K_e+\Psi_{2e}| -
+{\rm tr}K_e^{-1}\Psi_{2e}-\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}.
+\label{eq:psi}
+\end{equation}
+%
+<<Psi>>=
+function [lml, dnlml] = Psi(hyp, qx, z, u, test);
+% hyp       1 x E    GP hyperparameter struct
+%   l       F x 1    log length scale
+%   pn      1 x 1    log process noise std dev
+% qx        1 x N    Gaussian q(x) distribution
+%   m     E x T_n    mean
+%   Sd  ExE x T_n    diagonal elements of covariance matrix
+%   So  ExE x T_n-1  immediately off-diagonal elements of covariance matrix
+% z       M x F x E  inducing inputs
+% u       T_n x U    cell array of control inputs 
+% lml       1 x 1    contribution to the log marginal likelihood
+% dnlml              derivatives
+
+persistent K Psi1 Psi2;                        % keep these around if necessary
+[M, F, E] = size(z);                                                % get sizes
+test = 0;
+<<expectations>>
+if nargout > 0
+  <<expectation derivatives>>
+end
+
+@
+
+\subsubsection*{The $\Psi_1$ and $\Psi_2$ expectations}
+
+The expectations from eq.~(\ref{eq:Psi12}) and derivatives wrt
+hyperparameters, the parameters of the $q({\bf x})$ distribution and
+the pseudo-inputs ${\bf z}$ are calculated by the ${\tt Psi}$
+function. To compute these expectations, the pairwise joint
+%
+\[
+q({\bf x}_{t-1:t})\;=\;{\cal N}\Big(\Big[\!
+\begin{array}{l}\boldsymbol\mu_{t-1}\\ \boldsymbol\mu_t\end{array}\!\Big],
+\Big[\!\begin{array}{ll}\Sigma_{t-1,t-1}&\Sigma_{t-1,t}\\
+\Sigma_{t,t-1}&\Sigma_{t,t}\end{array}\!\Big]\Big),
+\]
+is multiplied with the covariance function, which can be written as an un-normalized
+joint Gaussian
+\[
+k_e({\bf x}_{t-1},{\bf z}_{ie})\;=\;\exp\Big(-\tfrac{1}{2}
+\Big[\!\begin{array}{c}{\bf x}_{t-1}-{\bf z}_{ie}\\ {\bf x}_t\end{array}\!\Big]^\top
+\Big[\begin{array}{cc}\Lambda_e^{-1}&0\\0&0\end{array}\!\Big]
+\Big[\!\begin{array}{c}{\bf x}_{t-1}-{\bf z}_{ie}\\ {\bf x}_t\end{array}\!\Big]\Big),
+\]
+yielding
+\begin{equation}
+\begin{split}
+\int {\bf x}_tk_e({\bf x}_{t-1},{\bf z}_{ie})&q({\bf x}_{t-1:t})d{\bf x}_{t-1}d{\bf x}_t\;=\;
+\big(\boldsymbol\mu_t+\Sigma_{t,t-1}[\Lambda_e+\Sigma_{t-1,t-1}]^{-1}
+({\bf z}_{ie}-\boldsymbol\mu_{t-1})\big)\\
+&\times|I+\Lambda_e^{-1}\Sigma_{t-1,t-1}|^{-1/2}
+\exp\big(-\tfrac{1}{2}(\boldsymbol\mu_{t-1}-{\bf z}_{ie})
+[\Lambda_e+\Sigma_{t-1,t-1}]^{-1}(\boldsymbol\mu_{t-1}-{\bf z}_{ie})\big).
+\end{split}
+\end{equation}
+%
+For $\Psi_2$ we have from eq.~(\ref{eq:Psi12})
+%
+\begin{equation}
+\begin{split}
+\int k_e({\bf z}_{ie}&,{\bf x}_{t-1})k_e({\bf x}_{t-1},{\bf z}_{je})q({\bf x}_{t-1})
+d{\bf x}_{t-1}\;=\;
+\exp(-({\bf z}_{ie}-{\bf z}_{je})\Lambda_e^{-1}({\bf z}_{ie}-{\bf z}_{je})/4)\\
+&\times|I+2\Lambda_e^{-1}\Sigma_{t-1,t-1}|^{-1/2}
+\exp(-(\tfrac{{\bf z}_{ie}+{\bf z}_{je}}{2}-\boldsymbol\mu_{t-1})
+[\Lambda_e/2+\Sigma_{t-1,t-1}]^{-1}(\tfrac{{\bf z}_{ie}+{\bf z}_{je}}{2}-\boldsymbol\mu_{t-1})/2).
+\end{split}
+\end{equation}
+%
+Both $\Psi_1$ and $\Psi_2$ are computed for each GP $e=1,\ldots,E$, each inducing input
+${\bf z}_{ie}, i=1,\ldots,M$, and added over ($N$ time series and) $T_n-1$ time points:
+%
+<<expectations>>=
+K = zeros(M,M,E); Psi1 = zeros(M,E); Psi2 = zeros(M,M,E); Sd = zeros(F,F);
+lml = 0;
+for e = 1:E                                                       % for each GP
+  K(:,:,e) = exp(-maha(z(:,:,e),[],diag(exp(-2*hyp(e).l)))/2) + 1e-6*eye(M);
+  iL = diag(exp(-hyp(e).l)); L2 = diag(exp(2*hyp(e).l));
+  b1 = zeros(M,1); b2 = zeros(M,M);
+  for n = 1:length(qx)                                   % for each time series
+    for t = 2:size(qx(n).m, 2)                             % for each time step
+      Sd(1:E,1:E) = qx(n).Sd(:,:,t-1);          % covariance in top left corner
+      r1 = prod(diag(chol(eye(F)+iL*Sd*iL)));                        % sqrt det
+      r2 = prod(diag(chol(eye(F)+2*iL*Sd*iL)));                      % sqrt det
+      s = bsxfun(@minus, z(:,:,e), [qx(n).m(:,t-1)' u{n}(t-1,:)]);
+      a = s/(L2+Sd);
+      b1 = b1 + (qx(n).m(e,t) + a(:,1:E)*qx(n).So(:,e,t-1)) ...
+                                                      .*exp(-sum(a.*s,2)/2)/r1;
+      b2 = b2 + exp(-maha(s,-s,inv(L2+2*Sd))/4) / r2;
+    end
+  end
+  if test
+    w = (K(:,:,e)+Psi2(:,:,e))\Psi1(:,e);
+    W = -K(:,:,e)\Psi2(:,:,e)/(Psi2(:,:,e)+K(:,:,e)) + w*w';
+    lml = lml + exp(-2*hyp(e).pn)*(b1'*Psi1(:,e) ...
+                       - sum(sum(b2.*exp(-maha(z(:,:,e),[],inv(L2))/4).*W))/2);
+  else
+    Psi1(:,e) = b1 * exp(-2*hyp(e).pn);
+    Psi2(:,:,e) = b2 * exp(-2*hyp(e).pn) .* exp(-maha(z(:,:,e),[],inv(L2))/4);
+    lml = lml - sum(log(diag(chol(K(:,:,e)+Psi2(:,:,e))))) + ...
+           sum(log(diag(chol(K(:,:,e))))) + trace(K(:,:,e)\Psi2(:,:,e))/2 + ...
+                                 Psi1(:,e)'/(K(:,:,e)+Psi2(:,:,e))*Psi1(:,e)/2;
+  end
+end
+
+@
+%
+Note that in the implementation the state distribution $q({\bf x})$ is
+concatenated with the (deterministic) control inputs $u$.
+
+\subsubsection*{{\tt Psi} derivatives}
+
+We need to compute the derivatives of $\Psi$ wrt the parameters of the
+$q(x)$ distribution, wrt the $u$ inducing inputs and wrt the
+hyperparameters. First, from eq.~(\ref{eq:psi}) we note
+%
+\[
+\begin{split}
+\frac{\partial \psi}{\partial\Psi_{1e}}\;&=\;-(K_e+\Psi_{2e})^{-1}\Psi_{1e}
+\;=\;-{\bf w}_e,\\
+\frac{\partial \psi}{\partial\Psi_{2e}}\;&=\;-\tfrac{1}{2}K_e^{-1}\Psi_{2e}
+(K_e+\Psi_{2e})^{-1}+\tfrac{1}{2}{\bf w}_e{\bf w}_e^\top\;=\;-\tfrac{1}{2}
+R_e(K_e+\Psi_{2e})^{-1}+\tfrac{1}{2}{\bf w}_e{\bf w}_e^\top\;=\;W_e,\\
+\frac{\partial \psi}{\partial K_e}\;&=\;-\tfrac{1}{2}R_e(K_e+\Psi_{2e})^{-1}
+R_e^\top+\tfrac{1}{2}{\bf w}_e{\bf w}_e^\top\;=\;V_e,
+\end{split}
+\]
+%
+where we have defined ${\bf w}_e=(K_e+\Psi_{2e})^{-1}\Psi_{1e}$ and
+$R_e=K_e^{-1}\Psi_{2e}$. These can be used together with the derivatives of
+$\Psi_1e$, $\Psi_{2e}$ and $K_e$ and the chain rule to get the desired derivatives.
+%
+<<expectation derivatives>>=
+dnlml.z = zeros(M,F,E);
+for n = 1:size(qx,2), dnlml.qx(n).m = 0*qx(n).m; dnlml.qx(n).So = 0*qx(n).So;
+dnlml.qx(n).Sd = -0*qx(n).Sd; end;
+for e = 1:E
+  w = (K(:,:,e)+Psi2(:,:,e))\Psi1(:,e);
+  R = K(:,:,e)\Psi2(:,:,e);
+  W = -R/(Psi2(:,:,e)+K(:,:,e)) + w*w';
+  <<hyp derivatives>>
+  <<Psi derivatives>>
+end
+@
+
+<<hyp derivatives>>=
+dnlml.hyp(e).pn = 2*sum(w.*Psi1(:,e)) - sum(sum(W.*Psi2(:,:,e)));
+@
+
+<<Psi derivatives>>=
+iL = diag(exp(-hyp(e).l)); L2 = diag(exp(2*hyp(e).l));
+W1 = W .* exp(-maha(z(:,:,e),[],inv(L2))/4);
+D = zeros(M,F); H = zeros(F,1);
+for n = 1:length(qx)
+  T = size(qx(n).m,2);
+  A = zeros(E,T); B = zeros(E,E,T); C = zeros(E,E,T-1);
+  for t = 2:T
+    Sd(1:E,1:E) = qx(n).Sd(:,:,t-1);         % covariance in top left corner
+    r2 = prod(diag(chol(eye(F)+2*iL*Sd*iL)));                     % sqrt det
+    s = bsxfun(@minus, z(:,:,e), [qx(n).m(:,t-1)' u{n}(t-1,:)]);
+    a = s/(L2+Sd);
+    a2 = s/(2*L2+4*Sd);
+    SiS = (L2(1:E,1:E)+Sd(1:E,1:E))\qx(n).So(:,e,t-1);
+    r = exp(-sum(a.*s,2)/2) / prod(diag(chol(eye(F)+iL*Sd*iL)));
+    g = (qx(n).m(e,t) + a(:,1:E)*qx(n).So(:,e,t-1)).*w.*r;
+    W2 = W1.*exp(-maha(s,-s,inv(L2+2*Sd))/4);
+    X = bsxfun(@plus,permute(a2,[1 3 2]),permute(a2,[3 1 2]));
+    A(:,t-1) = A(:,t-1) + SiS*(w'*r) - a(:,1:E)'*g + ...
+                      squeeze(sum(sum(bsxfun(@times,W2,X(:,:,1:E)),2),1))/r2;
+    A(e,t) = -w'*r;
+    B(:,:,t-1) = squeeze(sum(sum(bsxfun(@times, ...
+       bsxfun(@times,W2,X(:,:,1:E)),permute(X(:,:,1:E),[1 2 4 3])),2),1))/r2;
+    B(:,:,t-1) = B(:,:,t-1) + SiS*((w.*r)'*a(:,1:E)) ...
+                                  + inv(L2(1:E,1:E)+Sd(1:E,1:E))*sum(g)/2 ...
+                                  - a(:,1:E)'*bsxfun(@times,g,a(:,1:E))/2 ...
+                          - inv(L2(1:E,1:E)+2*Sd(1:E,1:E))*sum(sum(W2))/r2/2;
+    C(:,e,t-1) = -bsxfun(@times,a(:,1:E),r)'*w;
+    if ~test
+      D(:,1:E) = D(:,1:E) - bsxfun(@times,w,r)*SiS';
+      D = D + bsxfun(@times,g,a) - W2*a2/r2 - bsxfun(@times,sum(W2,2),a2)/r2;
+      H = H + diag(Sd/(L2+2*Sd))*sum(sum(W2))/r2 ...
+         + exp(2*hyp(e).l).*squeeze(sum(sum(bsxfun(@times,W2,X.^2),2),1))/r2;
+      H(1:E) = H(1:E) ...
+            + 2*exp(2*hyp(e).l(1:E)).*diag(SiS*bsxfun(@times,w,r)'*a(:,1:E));
+      H = H - diag(Sd/(L2+Sd))*sum(g);
+      H = H - exp(2*hyp(e).l).*diag(a'*bsxfun(@times,g,a));
+    end
+  end
+  dnlml.qx(n).m = dnlml.qx(n).m + A * exp(-2*hyp(e).pn); 
+  dnlml.qx(n).Sd = dnlml.qx(n).Sd + B * exp(-2*hyp(e).pn);
+  dnlml.qx(n).So = dnlml.qx(n).So + C * exp(-2*hyp(e).pn);  
+end
+if ~test
+G = W.*Psi2(:,:,e);
+a = z(:,:,e)*diag(exp(-2*hyp(e).l)/2);
+dnlml.z(:,:,e) = D*exp(-2*hyp(e).pn) + G*a - bsxfun(@times,sum(G,2),a);
+B = bsxfun(@minus,permute(a,[1 3 2]),permute(a,[3 1 2]));
+dnlml.hyp(e).l = H * exp(-2*hyp(e).pn)  ...
+         + exp(2*hyp(e).l).*squeeze(sum(sum(bsxfun(@times,G,B.^2),1),2));
+G = (R/(K(:,:,e)+Psi2(:,:,e))*R' + w*w').*K(:,:,e);
+a = z(:,:,e)*diag(exp(-2*hyp(e).l));
+B = bsxfun(@minus,permute(z(:,:,e),[1 3 2]),permute(z(:,:,e),[3 1 2]));
+dnlml.hyp(e).l = dnlml.hyp(e).l ...
+      + exp(-2*hyp(e).l).*squeeze(sum(sum(bsxfun(@times,B.^2,G),1),2))/2;
+dnlml.z(:,:,e) = dnlml.z(:,:,e) + G*a - bsxfun(@times,sum(G,2),a);
+end
+@
+
+\subsection*{Test set calculation}
+
+The distinguishing factor between training and test set calculations
+is whether the inducing target distribution is updated (training set)
+or kept fixed (test set). For the test set the contribution from the
+transition model to the log probability is
+
+\begin{equation}
+\begin{split}
+&\smash{\sum_{e=1}^E}
+\tfrac{1}{2}{\rm tr}K_e^{-1}\Psi_{2e}(K_e+\Psi_{2e})^{-1}\Psi_{2e}^*
+-\tfrac{1}{2}{\rm tr}(K_e+\Psi_{2e})^{-1}\Psi_{1e}\Psi_{1e}^\top
+(K_e+\Psi_{2e})^{-1}\Psi_{2e}^*
++\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}^*\\
+&+\tfrac{1}{2}\sum_{t=2}^T\log|\Sigma_{t-1:t,t-1:t}|-\tfrac{1}{2}
+\sum_{t=2}^{T-1}\log|\Sigma_t|
+-\tfrac{1}{2}{\rm tr}Q^{-1}\sum_{t=2}^T
+(I+\boldsymbol\mu_t^\top\boldsymbol\mu_t+\Sigma_{t,t})
+-\tfrac{T-1}{2}\log|Q|-\tfrac{(T-1)E}{2}\log(2\pi).
+\end{split}
+\end{equation}
+
+
+\subsection*{Representation of the $q({\bf x})$ distribution}
+
+The $q({\bf x})$ distribution is parameterised through its mean ${\tt
+qx.m}$ and the marginal and pairwise covariances. Conceptually, we
+wish to parameterize the $E$ by $E$ covariance matrices (for the
+marginal distibutions) which we call ${\tt qx.Sd}$ (for diagonal) and
+the $E$ by $E$ covariances between consequtive time points (for the
+pairwise marginals) which we call {\tt qx.So} (for
+off-diagonal). However it is inconvenient to parametrise these
+matrices directly, as it would be difficult to ensure positive
+definiteness of the marginal and pairwise marginal covariance
+matrices. Instead, we use $2E$ by $E$ representation $qx.s$ such that
+%
+\begin{equation}
+S_{d,t}\;=\;s_t^\top s_t,\text{\ \ and\ \ }
+S_{o,t-1}\;=\;s_{t-1}^\top s_t.
+\end{equation}
+%
+Using this representation, we can use call the optimizer with the
+unconstrained representation, which is the converted to the more
+convenient diagonal and off-diagonal representation at the beginning
+and the derivatives are reverted back at the end.
+%
+<<convert>>=
+function [Sd, So] = convert(s)
+[t, E, T]= size(s); Sd = zeros(E,E,T); So = zeros(E,E,T-1);
+for t = 1:T, Sd(:,:,t) = s(:,:,t)'*s(:,:,t); end               % diagonal terms
+for t = 2:T, So(:,:,t-1) = s(:,:,t-1)'*s(:,:,t); end             % off-diagonal
+
+@
+
+<<revert covariances>>=
+out2.qx = rmfield(out2.qx,{'Sd','So'});       % change to qx.s representation
+[out2.qx.s] = deal([]);                                % create the "s" field
+%for n = 1:N
+%  Sd = sum(dnlml.qx(n).Sd,3) / size(dnlml.qx(n).Sd,3);
+%  for t = 1:size(dnlml.qx(n).Sd,3), dnlml.qx(n).Sd(:,:,t) = Sd; end
+%end
+for n = 1:N                            
+  out2.qx(n).s = revert(p.qx(n).s, dnlml.qx(n).Sd, dnlml.qx(n).So);
+end
+@
+
+The derivatives are
+%
+\begin{equation}
+\begin{split}
+\frac{\partial {\cal L}}{\partial s_t}\;=&\;
+\frac{\partial {\cal L}}{\partial S_{d,t}}\frac{\partial S_{d,t}}{\partial s_t}+
+\frac{\partial {\cal L}}{\partial S_{o,t-1}}\frac{\partial S_{o,t-1}}{\partial s_t}+
+\frac{\partial {\cal L}}{\partial S_{o,t}}\frac{\partial S_{o,t}}{\partial s_t}
+\;=\;\frac{\partial}{\partial s_t}{\rm tr}\big(\frac{\partial{\cal L}}
+{\partial S_{d,t}}s_t^\top s_t\big)\\
+&+s_{t-1}\frac{\partial {\cal L}}{\partial S_{o,t-1}}+
+s_t\big[\frac{\partial {\cal L}}{\partial S_{o,t}}\big]^\top
+\;=\;s_t\big(\frac{\partial {\cal L}}{\partial S_{d,t}}
++\big[\frac{\partial {\cal L}}{\partial S_{d,t}}\big]^\top\big)
++s_{t-1}\frac{\partial {\cal L}}{\partial S_{o,t-1}}+
+s_t\big[\frac{\partial {\cal L}}{\partial S_{o,t}}\big]^\top.
+\end{split}
+\end{equation}
+%
+<<revert>>=
+function r = revert(s, dSd, dSo)
+for t = 1:size(s,3), r(:,:,t) = s(:,:,t)*(dSd(:,:,t)+dSd(:,:,t)'); end
+for t = 2:size(s,3)
+  r(:,:,t-1) = r(:,:,t-1) + s(:,:,t)*dSo(:,:,t-1)';
+  r(:,:,t) = r(:,:,t) + s(:,:,t-1)*dSo(:,:,t-1);
+end
+
+@
+
+<<maha>>=
+% Squared Mahalanobis distance (a-b)*Q*(a-b)'; vectors are row-vectors
+% a, b  d x n  matrices containing n length d row vectors
+% Q     d x d  weight matrix
+% K     n x n  squared distances
+function K = maha(a, b, Q)                         
+if isempty(b), b = a; end
+aQ = a*Q; K = bsxfun(@plus,sum(aQ.*a,2),sum(b*Q.*b,2)')-2*aQ*b';
+@
+
+\end{document}
+
