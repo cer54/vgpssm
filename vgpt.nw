@@ -57,7 +57,7 @@
 
 \title{Variational Gaussian Process Timeseries Inference}
 \author{Carl Edward Rasmussen}
-\date{January 8th 2016}
+\date{May 7th 2017}
 
 \begin{document}
 
@@ -146,10 +146,11 @@ B_{t-1}\;=\;k({\bf x}_{t-1},{\bf x}_{t-1})
 \]
 A free form optimization of this bound wrt $q({\bf v})$ yields independent Gaussians
 for each GP
-\[
+\begin{equation}
 q^*({\bf v}_e)\;=\;{\cal N}\big(\boldsymbol\mu_e=K_e(K_e+\Psi_{2e})^{-1}\Psi_{1e},\;
 \Sigma_e=K_e(K_e+\Psi_{2e})^{-1}K_e\big),
-\]
+\label{eq:qstarv}
+\end{equation}
 where $K_e=k_e({\bf z}_e,{\bf z}_e)$ and we have defined the expectations
 %
 \begin{equation}
@@ -240,6 +241,26 @@ Q^{-1}\sum_{t=2}^T\langle{\bf x}_{t}^\top{\bf x}_t\rangle_{q(x_t)}-\tfrac{1}{2}
 \label{eq:trans}
 \end{equation}
 %
+Collecting terms form eq.~(\ref{eq:KL}-\ref{eq:trans}) which depend on
+$\Psi_1$ and $\Psi_2$, two possibilies arise, either training or testing,
+in both cases we introduce $\mu$ and $\Sigma$ from eq.~(\ref{eq:qstarv})
+for the \emph{training} cases, giving rise to
+%
+\begin{equation}
+\begin{split}
+\Psi\;&=\;\tfrac{1}{2}\sum_{e=1}^E\log|K_e|-\log|K_e+\Psi_{2e}|
++{\rm tr}K_e^{-1}\Psi_{2e}+
+\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e},\\
+\Psi^*\;&=\;\tfrac{1}{2}\sum_{e=1}^E
+{\rm tr}K_e^{-1}\Psi_{2e}(K_e+\Psi_{2e})^{-1}\Psi_{2e}^*
+-{\rm tr}(K_e+\Psi_{2e})^{-1}\Psi_{1e}\Psi_{1e}^\top
+(K_e+\Psi_{2e})^{-1}\Psi_{2e}^*
++2\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}^*
+\end{split}
+\end{equation}
+%
+for training and test respectively.
+
 Pulling together all terms from eq.~(\ref{eq:KL}-\ref{eq:trans}) we get the following
 contribution
 %

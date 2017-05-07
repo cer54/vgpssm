@@ -1,0 +1,25 @@
+{
+  if ($0 ~ /\\nwbegincode/) {
+    a = 1;
+    printf "%s\\begin{lstlisting}[escapechar=\\!]\n", $0
+  } else
+  {
+    if ($0 ~ /\}\\nwendcode/) {
+      a = 0;
+      printf "\\end{lstlisting}\n%s\n", $0
+    } else
+    { 
+      if (a == 0)
+        print $0;
+      else {
+        if ($0 ~ /\\LA\{/) {
+          sub(/\\LA\{/, "!\\LA{")
+          printf "%s!\n", $0
+        } else {
+          gsub(/\\\{/, "{"); gsub(/\\\}/, "}"); gsub(/\\\\/, "\\")
+          printf "%s\n", $0
+        }
+      }
+    }
+  }
+}
