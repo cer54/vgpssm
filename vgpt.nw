@@ -253,25 +253,20 @@ for the \emph{training} cases, giving rise to
 \Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e},\\
 \Psi^*\;&=\;\tfrac{1}{2}\sum_{e=1}^E
 {\rm tr}K_e^{-1}\Psi_{2e}(K_e+\Psi_{2e})^{-1}\Psi_{2e}^*
--{\rm tr}(K_e+\Psi_{2e})^{-1}\Psi_{1e}\Psi_{1e}^\top
-(K_e+\Psi_{2e})^{-1}\Psi_{2e}^*
-+2\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}^*
+-{\rm tr}{\bf w}_e{\bf w}_e^\top\Psi_{2e}^*
++2\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}^*,
 \end{split}
+\label{eq:Psi}
 \end{equation}
 %
-for training and test respectively.
-
-Pulling together all terms from eq.~(\ref{eq:KL}-\ref{eq:trans}) we get the following
-contribution
+where ${\bf w}_e=(K_e+\Psi_{2e})^{-1}\Psi_{1e}$, for training and test
+respectively. Pulling together all terms from eq.~(\ref{eq:KL}-\ref{eq:trans})
+and eq.~(\ref{eq:Psi}) we get the following contribution to the log likelihood
 %
 \begin{equation}
-\begin{split}
-&\tfrac{1}{2}\smash{\sum_{e=1}^E}\log|(K_e+\Psi_{2e})^{-1}K_e|
-+{\rm tr}K_e^{-1}\Psi_{2e}+\Psi_{1e}^\top(K_e+\Psi_{2e})^{-1}\Psi_{1e}\\
-&-\tfrac{1}{2}{\rm tr}Q^{-1}\sum_{t=2}^T
+\Psi-\tfrac{1}{2}{\rm tr}Q^{-1}\sum_{t=2}^T
 (I+\boldsymbol\mu_t^\top\boldsymbol\mu_t+\Sigma_{t,t})
 -\tfrac{T-1}{2}\log|Q|-\tfrac{(T-1)E}{2}\log(2\pi).
-\end{split}
 \end{equation}
 %
 
@@ -600,7 +595,7 @@ R_e^\top+\tfrac{1}{2}{\bf w}_e{\bf w}_e^\top\;=\;V_e,
 %
 where we have defined ${\bf w}_e=(K_e+\Psi_{2e})^{-1}\Psi_{1e}$ and
 $R_e=K_e^{-1}\Psi_{2e}$. These can be used together with the derivatives of
-$\Psi_1e$, $\Psi_{2e}$ and $K_e$ and the chain rule to get the desired derivatives.
+$\Psi_{1e}$, $\Psi_{2e}$ and $K_e$ and the chain rule to get the desired derivatives.
 %
 <<expectation derivatives>>=
 dnlml.z = zeros(M,F,E);
