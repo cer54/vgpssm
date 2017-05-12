@@ -503,8 +503,6 @@ end
 %   hyp     1 x E    GP hyperparameter struct
 %     l     F x 1    log length scale
 %     pn    1 x 1    log process noise std dev
-%   C       D x E+1  mapping from latent to observation space
-%   R       D x D    noise from latent to observation space
 %   z     M x F x E  inducing inputs
 
 %Given three arguments, and no observations,
@@ -522,8 +520,6 @@ end
 %   hyp     1 x E    GP hyperparameter struct
 %     l     F x 1    log length scale
 %     pn    1 x 1    log process noise std dev
-%   C       D x E+1  mapping from latent to observation space
-%   R       D x D    noise from latent to observation space
 %   z     M x F x E  inducing inputs
 
 % Copyright (C) 2016 by Carl Edward Rasmussen, 20160530.
