@@ -351,14 +351,14 @@ not take on the simple form $\cal L^*$, but must be calculated in full from eq.~
 function [L, R_out, C_out, dm, dS] = likelihood(y, qx, test)
 persistent C R
 D = size(y{1},2); E = size(qx(1).m,1); T = sum(arrayfun(@(x)size(x.m,2),qx)); 
-N = size(y,2); yy = zeros(D); ym = zeros(D, E+1); mm = zeros(E+1);
+N = size(y,2); yy = zeros(D); ym = zeros(D, E+1); mm = zeros(E+1); d = zeros(1,N);
 for n = 1:N
   m = [qx(n).m' ones(size(qx(n).m,2),1)]; mm = mm + m'*m; ym = ym + y{n}'*m;
   yy = yy + y{n}'*y{n}; mm(1:E,1:E) = mm(1:E,1:E) + sum(qx(n).Sd,3); 
 end
 if test %Use provided C, R
   for n=1:N
-    CsC = 0; for t=1:T, CsC = CsC + C(:,E)*qx(n).Sd(:,:,t)*C(:,E)'; end
+    CsC = 0; for t=1:T, CsC = CsC + C(:,1:E)*qx(n).Sd(:,:,t)*C(:,1:E)'; end
     d(1,n) = sum(sum((y{n}' - C*[qx(n).m; ones(1,size(qx(n).m,2))]).^2)) + CsC;
   end
   L = -D*T*log(2*pi)/2 - T*sum(log(diag(chol(R))))/2 - trace(inv(R))*(sum(d))/2;    
@@ -448,7 +448,7 @@ elseif isfield(data, 'y')%We are in the test regime, inferring the relevant late
 else %We are in the case where we are predicting the next latent space point.
   N = length(p); z = x.z; [M, F, E] = size(z); hyp = x.hyp;
   u = arrayfun(@(x)(x.u),data,'UniformOutput',false); 
-  qx = p;
+  for n=1:N, qx(n) = p(n);end
   test = 1;
   predict = 1;
 end
@@ -622,9 +622,10 @@ ${\bf z}_{ie}, i=1,\ldots,M$, and added over ($N$ time series and) $T_n-1$ time 
 %
 <<expectations>>=
 if ~test %If we test, we use the stored values of Psi1, Psi2 from the training set.
-  K = zeros(M,M,E); Psi1 = zeros(M,E); Psi2 = zeros(M,M,E); Sd = zeros(F,F);
+  K = zeros(M,M,E); Psi1 = zeros(M,E); Psi2 = zeros(M,M,E);
 end
 lml = 0;
+Sd = zeros(F,F);
 for e = 1:E                                                       % for each GP
   K(:,:,e) = exp(-maha(z(:,:,e),[],diag(exp(-2*hyp(e).l)))/2) + 1e-6*eye(M);
   iL = diag(exp(-hyp(e).l)); L2 = diag(exp(2*hyp(e).l));
@@ -644,7 +645,7 @@ for e = 1:E                                                       % for each GP
   if test
     w = (K(:,:,e)+Psi2(:,:,e))\Psi1(:,e);
     W = -K(:,:,e)\Psi2(:,:,e)/(Psi2(:,:,e)+K(:,:,e)) + w*w';
-    lml = lml + exp(-2*hyp(e).pn)*(b1'*w(:,e) ...
+    lml = lml + exp(-2*hyp(e).pn)*(b1'*w ...
                        - sum(sum(b2.*exp(-maha(z(:,:,e),[],inv(L2))/4).*W))/2);
   else
     Psi1(:,e) = b1 * exp(-2*hyp(e).pn);
@@ -952,28 +953,31 @@ function qx_opt = predict_forwards(hyp, qx, z, u)
 %Fetch the Psi1,2 values by calling Psi with 4 arguments
 [Psi1, Psi2] = Psi(hyp, qx, z, u);
 E = size(qx, 2); [M, F, E] = size(z); 
-
 for e = 1:E
   K(:,:,e) = exp(-maha(z(:,:,e),[],diag(exp(-2*hyp(e).l)))/2) + ...
       1e-6*eye(M);
   w = (K(:,:,e)+Psi2(:,:,e))\Psi1(:,e);
   iL = diag(exp(-hyp(e).l)); L2 = diag(exp(2*hyp(e).l));
-  b1 = zeros(M,1); 
+  b3 = zeros(E,1); 
+  b4 = zeros(1);
   for n = 1:size(qx,2)
-    t = size(qx.m, 2);
+    t = size(qx.m, 2); Sd = zeros(F,F);
     Sd(1:E,1:E) = qx(n).Sd(:,:,t);          % covariance in top left corner
     r1 = prod(diag(chol(eye(F)+iL*Sd*iL)));                        % sqrt det
     %  s = bsxfun(@minus, z(:,:,e), [qx(n).m(:,t)'
     %                          u{n}(t,:)]); 
     s = bsxfun(@minus, z(:,:,e), [qx(n).m(:,t)' u{n}(t,:)]); 
     a = s/(L2+Sd);
-    b3 = exp(-sum(a.*s,2)/2)/r1;
-    qx_opt(n).m = b3'*w;
-    qx_opt(n).So = (qx(n).Sd(:,e,t)*w)'*(a(:,1:E).*b3);
-    qx_opt(n).Sd = exp(2*hyp(e).pn) + qx_opt(n).So * inv(qx(n).Sd(:, e, end)) ...
-    * qx_opt(n).So';
+    b3(e,1) = w'*(exp(-sum(a.*s,2)/2)/r1); b4 = zeros(M,E);
+    for f=1:E, b4(:,f) = a(:,f).*exp(-sum(a.*s,2)/2)/r1;end
+    b5(e, :) = w'*b4;
   end
 end
+qx_opt(n).m = b3;
+qx_opt(n).So = qx.Sd*b5;
+qx_opt(n).Sd = exp(2*hyp(e).pn) + qx_opt(n).So * inv(qx(n).Sd(:, :, end)) ...
+    * qx_opt(n).So';
+
 @
 
 \end{document}

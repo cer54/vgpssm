@@ -1,6 +1,10 @@
-function test_1d(n_training, n_seed, n_predict, data_std, M)
+function test_1d_E_dim(n_training, n_seed, n_predict, data_std, M)
 %Here we have two timeseries, one with a full amount of data and one serving
 %as a test seed timeseries.
+
+%Plotting the GPs doesn't work for E>1 at the moment (not sure how
+%to represent them), but if that is commented out then everything
+%else (including the prediction) should work.
 
 %--------------------------------------------------------------------------------
 %Parameters that can be tweaked:
@@ -9,9 +13,10 @@ NUM_TRAINING_POINTS     = n_training; %Number of points that we have data for
 NUM_POINTS_IN_TEST_SEED = n_seed;   
 NUM_POINTS_TO_PREDICT   = n_predict;
 DATA_STD_DEV            = data_std;  %Standard deviation of noise in data generative process
-VAR_0                   = 1;   %Initial choice for variance of q_x distribution (isotropic)
+VAR_0                   = 2;   %Initial choice for variance of q_x distribution (isotropic)
 
 LATENT_DIMENSION = 1;
+E = LATENT_DIMENSION;
 
 if nargin < 5
 M                       = (NUM_TRAINING_POINTS / 2);
@@ -42,6 +47,7 @@ test_x = zeros(T_p2, 1);
 test_x(1, 1) = x_0;
 test_obs= zeros(T_p2, 1);
 test_obs(1, 1) = normrnd(x_0, g_s);
+
 for t = 2:T_p2
     w = f_smooth(w);
     test_x(t, 1) = w;
@@ -51,41 +57,50 @@ end
 %Package the input up into struct
 %Hyp-----
 
-init_mat = normrnd(0, 1e-2, E+1, 1) %Assume we have 1D control inputs
+init_mat = normrnd(0, 1e-2, E+1, 1); %Assume we have 1D control inputs
 for e=1:E, hyp(e).l = init_mat; hyp(e).pn = 0;end
-
-hyp = struct('l', {[normrnd(0, 1e-2, 1, 1); 10]}, 'pn', {0}); %don't consider
+%hyp = struct('l', {[normrnd(0, 1e-2, 1, 1); 10]}, 'pn', {0}); %don't consider
                                                               %u at the moment
 %s-------
-s = zeros(2, 1, T_y); %initialise cov matrix
-var = VAR_0; %variance of the gaussians
-s(1, 1, :) =  (var/2)^(0.5) + normrnd(0, 1e-6); %break symmetry
-tmp = [ones(1, 1, T_y / 2); -1 * ones(1, 1, T_y / 2)]; %alternating signs make
-s(2, 1, :) = tmp(:) * (var/2)^(0.5) + normrnd(0, 1e-6);  %cov matrix noisy
-                                                           %isotropic 
-%m------
-m = [obs']; %set means as observed outputs
+var = sqrt(VAR_0/(2*E));
+s = zeros(2*E, E, T_y);
+for t = 1:2:size(s, 3), s(1:E,:,t) = var * eye(E) + normrnd(0,1e-6); end
+for t = 2:2:size(s, 3), s(E+1:2*E,:,t) = var * eye(E) + normrnd(0,1e-6); end
+%m-------
+
+% s = zeros(2, 1, T_y); %initialise cov matrix
+% var = VAR_0; %variance of the gaussians
+% s(1, 1, :) =  (var/2)^(0.5) + normrnd(0, 1e-6); %break symmetry
+% tmp = [ones(1, 1, T_y / 2); -1 * ones(1, 1, T_y / 2)]; %alternating signs make
+% s(2, 1, :) = tmp(:) * (var/2)^(0.5) + normrnd(0, 1e-6);  %cov
+                                                         %matrix
+                                                         %noisy
+D = size(obs, 2);                                                         
+m = [obs'; normrnd(0, 1, E-D, T_y)];
+%m = [obs']; %set means as observed outputs
 %Other things for the initial training--
 qx_1 = struct('m', {m}, 's', {s});
-z = zeros(M, 2, 1);
-z(:, 1, 1) = linspace(min(x) - 1, max(x) + 1, M);
+%z = zeros(M, E+1, 1);
+z = randn(M, E+1, E);
+%z(:, 1, 1) = linspace(min(x) - 1, max(x) + 1, M);
 y = obs(1:T_y);
 u = zeros(T_y, 1); %Keep control inputs constant for now
 data_1 = struct('y', {y}, 'u', {u});
 p_1 = struct('hyp', hyp, 'qx', qx_1, 'z', z);
 %%----------------------------------------------------------------------------
-%Fit for the initial training
-train_out = minimize(p_1, @vgpt, -600, data_1);
+%Fit for the initial training 
+train_out = minimize(p_1, @vgpt, -5000, data_1);
 [nlml dnlm lat] = vgpt(train_out, data_1);
+lat
 %--------------------------------------------------------------------------
 %Set parameters for the prediction inference on the seed timeseries
 data_2 = struct('y', {test_obs(1:T_p)}, 'u', {u(1:T_p, :)});
-qx_2 = struct('m', {test_obs(1:T_p)'}, 's', {s(:, :, 1:T_p)});
+qx_2 = struct('m', {[test_obs(1:T_p)'; normrnd(0, 1e-2, E-D, T_p)]}, 's', {s(:, :, 1:T_p)});
 p_2 = struct('qx', qx_2);
 test_in = struct('hyp', train_out.hyp, 'z', train_out.z);
 
 %Optimise on the test seed observations
-inf_out = minimize(p_2, @vgpt, -2000, data_2, test_in);
+inf_out = minimize(p_2, @vgpt, -5000, data_2, test_in);
 [nlml2 dnlm2 lat2] = vgpt(inf_out, data_2, test_in);
 
 %Set parameters for the prediction, using the final state from the seed
@@ -97,7 +112,6 @@ data_3 = struct('u', 0);
 first_3 = vgpt(p_3, data_3, predict_in);
 %----------
 [Sd, So] = convert(inf_out.qx.s);
-
 bootstrap_series = struct('m',{[inf_out.qx.m first_3.m]}, 'Sd', ...
                           {cat(3, Sd, first_3.Sd)}, 'So', {cat(3, So, first_3.So)});
 in = first_3;
@@ -107,7 +121,7 @@ for n = 1:T_p2-T_p - 1
     'Sd', {cat(3, bootstrap_series.Sd, out.Sd)}, 'So', {cat(3, bootstrap_series.So, out.So)});
     in = struct('m', out.m, 'Sd', out.Sd);
 end
-
+keyboard
 %---------------------------------------------------------------------------
 %Plotting the training timeseries
 plot_grid = [-3:0.1:2];
@@ -118,7 +132,7 @@ plot_grid = [-3:0.1:2];
 %Map back from latent space to observation space
 adj_mean = conv_lat(lat.C, train_out.qx(1).m);
 m_std = std(train_out.qx(1).m);
-adj_z = conv_lat(lat.C, train_out.z(:, 1)')';
+adj_z = conv_lat(lat.C, train_out.z(:, 1:E)')';
 
 drawArrow = @(x,y) quiver( x(1),y(1),x(2)-x(1),y(2)-y(1), 'linewidth', ...
                            3, 'color', 'k');
@@ -136,9 +150,13 @@ gp_hyp = struct('mean', [], 'cov', [train_out.hyp.l(1), log(m_std)], 'lik', trai
 [mu s2] = gp(gp_hyp, inf, meanfunc, sparse_cov, likfunc, train_out.qx(1).m(:, ...
                                                   1:T_y-1)', train_out.qx(1).m(:, ...
                                                   2:T_y)', train_out.z(:, ...
-                                                  1));
+                                                  1:E));
 mu = conv_lat(lat.C, mu')';
 adj_s2 = lat.C(1) * sqrt(s2);
+
+[adj_z, sort_index] = sort(adj_z);
+mu = mu(sort_index);
+s2 = s2(sort_index);
 
 subplot(2, 2, 1);
 f = [mu+2*adj_s2; flipdim(mu-2*adj_s2,1)];
@@ -228,8 +246,10 @@ subplot(2, 2, 4);
 
 hold on;
 %Uncertainty in where we are is used
-to_plot_Sd = reshape(Sd(1, 1, 1:T_p2), 1, T_p2);
-to_plot_Sd_2 = sqrt(to_plot_Sd * pred_lat.C(1).^2 + lat.R.^2);
+for t=1:T_p2, to_plot_Sd_2(t) = sqrt(pred_lat.C(1,1:E)*Sd(:,:,t)* ...
+      pred_lat.C(1,1:E)' + lat.R^2);end
+%to_plot_Sd = reshape(Sd(1, 1, 1:T_p2), 1, T_p2);
+%to_plot_Sd_2 = sqrt(pred_lat.C(1,1:E) * to_plot_Sd * pred_lat.C(1,1:E)' + lat.R.^2);
 hold on; 
 f = [adj_mean(1:T_p2) - 2 * to_plot_Sd_2, ...
      fliplr(adj_mean(1:T_p2) + 2 * to_plot_Sd_2)];
@@ -320,7 +340,7 @@ plot(mean(1), mean(2), 'rx')
 hold on;
 
 function [y] = f_smooth(x);
-y = sin(exp(8*x)) + 0.8 + (x + 0.2) .* (1 - 5 ./ (1 + exp(-2 * x)));
+y = 0.8 + (x + 0.2) .* (1 - 5 ./ (1 + exp(-2 * x)));
 
     
 function [Sd, So] = convert(s)
