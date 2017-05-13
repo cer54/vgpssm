@@ -341,7 +341,6 @@ a given short sequence, we use the $R^*$ and $C^*$ parameters derived from
 the training sequences, so that the contribution to the log likelihood does
 not take on the simple form $\cal L^*$, but must be calculated in full from eq.~(\ref{eq:lik}).
 
-
 <<likelihood>>=
 function [L, R_out, C_out, dm, dS] = likelihood(y, qx, test)
 persistent C R
@@ -353,10 +352,10 @@ for n = 1:N
 end
 if test %Use provided C, R
   for n=1:N
-    CsC = 0; for t=1:T, CsC = CsC + C(:,1:E)*qx(n).Sd(:,:,t)*C(:,1:E)'; end
-    d(1,n) = sum(sum((y{n}' - C*[qx(n).m; ones(1,size(qx(n).m,2))]).^2)) + CsC;
+    w = y{n}' - C*[qx(n).m; ones(1,size(qx(n).m,2))];
+    d(1,n) = sum(sum(inv(R).*(w*w' + C(:,1:E)*sum(qx(n).Sd,3)*C(:,1:E)')));
   end
-  L = -D*T*log(2*pi)/2 - T*sum(log(diag(chol(R))))/2 - trace(inv(R))*(sum(d))/2;    
+  L = -D*T*log(2*pi)/2 - T*sum(log(diag(chol(R))))/2 - sum(d)/2;    
 else    
   C = ym/mm; R = (yy - C*ym')/T;
   L = -D*T*(1+log(2*pi))/2 - T*sum(log(diag(chol(R))));          % log likelihood
@@ -434,16 +433,16 @@ if nargin == 2
   test = 0;
   predict = 0;
 elseif isfield(data, 'y')%We are in the test regime, inferring the relevant latent states
-  N = length(p.qx); z = x.z; [M, F, E] = size(z); hyp = x.hyp;
-  u = arrayfun(@(x)(data.u),data,'UniformOutput',false); [qx(1:N).m] = deal(p.qx(:).m);
-  y = arrayfun(@(x)(x.y),data,'UniformOutput',false);
-  for n = 1:N, [qx(n).Sd qx(n).So] = convert(p.qx(n).s); end % convert covariance
+  z = x.z; [M, F, E] = size(z); hyp = x.hyp;
+  u = arrayfun(@(x)(data.u),data,'UniformOutput',false);
+  N = length(p); [qx(1:N).m] = deal(p(:).m);
+  y = arrayfun(@(x)(x.y),data,'UniformOutput',false); 
+  for n = 1:N, [qx(n).Sd qx(n).So] = convert(p(n).s); end % convert covariance
   test = 1;
   predict = 0;
 else %We are in the case where we are predicting the next latent space point.
-  N = length(p); z = x.z; [M, F, E] = size(z); hyp = x.hyp;
+  N = length(p); z = x.z; [M, F, E] = size(z); hyp = x.hyp; qx = p;
   u = arrayfun(@(x)(x.u),data,'UniformOutput',false); 
-  for n=1:N, qx(n) = p(n);end
   test = 1;
   predict = 1;
 end
@@ -487,10 +486,9 @@ end
 %we are predicting the latent states of a set of observation
 %given an example seed trajectory, we expect
 
-% p                  parameter struct
-%   qx      1 x N    struct array for Gaussian q(x) distribution
-%     m     E x T_n  mean
-%     s  2ExE x T_n  representation of covariance
+% qx         1 x N    struct array for Gaussian q(x) distribution
+%   m       E x T_n  mean
+%   s    2ExE x T_n  representation of covariance
 % data      1 x N    data struct
 %   y     T_n x D    cell array of seed observations
 %   u     T_n x U    cell array of seed control inputs
@@ -504,11 +502,10 @@ end
 %we are predicting the next state given
 %the previous state. We can do this analytically.
 
-% p                  parameter struct
-%   qx      1 x N    struct array for Gaussian q(x) distribution
-%     m     E x 1    mean of the last state
-%     So    E x E    pairwise marginal covariance between last two states
-%     Sd    E x E    marginal covariance of last state
+% qx         1 x N    struct array for Gaussian q(x) distribution
+%   m       E x 1    mean of the last state
+%   So      E x E    pairwise marginal covariance between last two states
+%   Sd      E x E    marginal covariance of last state
 % data      1 x N    data struct    
 %   u       1 x U    cell array of control input for prediction
 % x       
@@ -850,12 +847,18 @@ end
 <<assign outs>>=
 out2.qx = rmfield(out2.qx,{'Sd','So'});       % change to qx.s representation
 [out2.qx.s] = deal([]);                                % create the "s" field
-for n = 1:N                            
-  out2.qx(n).s = revert(p.qx(n).s, dnlml.qx(n).Sd, dnlml.qx(n).So);
-end
 if test
+  for n = 1:N                            
+    out2.s = revert(p.s, dnlml.qx(n).Sd, dnlml.qx(n).So);
+  end
   out2 = rmfield(out2, 'hyp');
   out2 = rmfield(out2, 'z');
+  out2.m = out2.qx.m;
+  out2 = rmfield(out2, 'qx');
+  else
+    for n = 1:N                            
+      out2.qx(n).s = revert(p.qx(n).s, dnlml.qx(n).Sd, dnlml.qx(n).So);
+    end
 end
 @
 
@@ -879,15 +882,15 @@ increasing its length by one.  Given a timeseries, if increase the length of the
 timeseries by one, we can analytically compute the parameters $\boldsymbol \mu_t
 , \ \Sigma_{t-1,t},\ \Sigma_{t,t}$ which maximise the likelihood. From equation
 \ref{eq::test}, $\frac{\partial \mathcal L}{\partial \boldsymbol{\mu}_t} =
-\Psi_{1e}^\top \left( K_e + \Psi_{2e}^*\right)^{-1} \frac{\partial
+\sum_{e=1}^E\Psi_{1e}^\top \left( K_e + \Psi_{2e}^*\right)^{-1} \frac{\partial
 \Psi_{1e}^*}{\partial \boldsymbol \mu_t} - {\rm tr}{(Q^{-1})}\boldsymbol \mu_t$,
 and using eq.~\ref{eq:psi_1},
 
 
-\begin{equation} \boldsymbol \mu_t^* = \Psi_{1e}^\top \left( K_e +
+\begin{equation} \boldsymbol \mu_{t,e}^* = \Psi_{1e}^\top \left( K_e +
   \Psi_{2e}\right)^{-1/2} |I+\Lambda_e^{-1}\Sigma_{t-1,t-1}|^{-1/2}
-  \exp\big(-\frac{1}{2}(\boldsymbol\mu_{t-1}-{\bf z}_{ie})
-  [\Lambda_e+\Sigma_{t-1,t-1}]^{-1}(\boldsymbol\mu_{t-1}-{\bf z}_{ie})\big) ,
+  \exp\left( -\frac{1}{2}(\boldsymbol\mu_{t-1}-{\bf z}_{ie})
+  [\Lambda_e+\Sigma_{t-1,t-1}]^{-1}(\boldsymbol\mu_{t-1}-{\bf z}_{ie})\right) ,
   \end{equation} which corresponds to the mean prediction of the GP, conditioned
   on the inducing inputs. For the marginal $\Sigma_{t,t}$, we find that
   $\frac{\partial \cal L}{\partial \Sigma_{t,t}} = -\frac{1}{2} {\rm tr}Q^{-1} +
@@ -898,12 +901,13 @@ and using eq.~\ref{eq:psi_1},
 \Sigma_{t-1,t}^*\Sigma_{t-1,t-1}^{-1}\Sigma_{t,t-1}^* \label{eq:sigma_t^*}
 \end{equation}
 
-For the pair-wise marginal, $\frac{\partial \cal L}{\partial \Sigma_{t-1,t}} = \Psi_{1e}^\top
+
+For the pair-wise marginal, $\frac{\partial \cal L}{\partial \Sigma_{t-1,t}} = \sum_{e=1}^E \Psi_{1e}^\top
 \left( K_e + \Psi_{2e}\right)^{-1} \frac{\partial \Psi_{1e}^*}{\partial
 \Sigma_{t-1,t}} + \frac{1}{2}\frac{\partial}{\partial \Sigma_{t-1,t}}
 |\log{\Sigma_{t-1:t,t-1:t}}|.$ This gives us
 
-\begin{equation} 0 = \Psi_{1e}^\top \left(K_e +
+\begin{equation} 0 = \sum_{e=1}^E \Psi_{1e}^\top \left(K_e +
 \Psi_{2e}\right)^{-1}\frac{\partial \Psi_{1e}^* }{\partial \Sigma_{t-1,t}} -
 \Sigma_{t-1,t-1}^{-1}\Sigma_{t-1,t}^*\left( \Sigma_{t,t}^* - \Sigma_{t-1,t}^*
 \Sigma_{t-1,t-1} \Sigma_{t-1,t}^* \right) ^{-1} \end{equation}.
@@ -911,7 +915,7 @@ For the pair-wise marginal, $\frac{\partial \cal L}{\partial \Sigma_{t-1,t}} = \
 Substituting, we find that
 
 \begin{equation} \label{eq:predicted_cov} \begin{split} \Sigma_{t-1,t}^* = &
-\Sigma_{t-1,t-1}\Psi_{1e}^\top \left(K_e + \Psi_{2e}\right)^{-1}\left( \Lambda_e
+\Sigma_{t-1,t-1}\sum_{e=1}^E \Psi_{1e}^\top \left(K_e + \Psi_{2e}\right)^{-1}\left( \Lambda_e
 + \Sigma_{t-1,t-1}\right) ^{-1}(\boldsymbol{z} - \boldsymbol \mu_{t-1})\\
 &\times
 |I+\Lambda_e^{-1}\Sigma_{t-1,t-1}|^{-1/2}\exp\big(-\frac{1}{2}(\boldsymbol\mu_{t-1}-{\bf
