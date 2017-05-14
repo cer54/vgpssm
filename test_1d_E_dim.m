@@ -41,7 +41,7 @@ end
 
 T_p = NUM_POINTS_IN_TEST_SEED;
 T_p2 = NUM_POINTS_TO_PREDICT + T_p;
-x_0 = 0;
+x_0 = normrnd(0, 0.5);
 w = x_0;
 test_x = zeros(T_p2, 1);
 test_x(1, 1) = x_0;
@@ -89,30 +89,28 @@ data_1 = struct('y', {y}, 'u', {u});
 p_1 = struct('hyp', hyp, 'qx', qx_1, 'z', z);
 %%----------------------------------------------------------------------------
 %Fit for the initial training 
-train_out = minimize(p_1, @vgpt, -5000, data_1);
+train_out = minimize(p_1, @vgpt, -1000, data_1);
 [nlml dnlm lat] = vgpt(train_out, data_1);
-lat
 %--------------------------------------------------------------------------
 %Set parameters for the prediction inference on the seed timeseries
 data_2 = struct('y', {test_obs(1:T_p)}, 'u', {u(1:T_p, :)});
 qx_2 = struct('m', {[test_obs(1:T_p)'; normrnd(0, 1e-2, E-D, T_p)]}, 's', {s(:, :, 1:T_p)});
-p_2 = struct('qx', qx_2);
 test_in = struct('hyp', train_out.hyp, 'z', train_out.z);
-
 %Optimise on the test seed observations
-inf_out = minimize(p_2, @vgpt, -5000, data_2, test_in);
+inf_out = minimize(qx_2, @vgpt, -5000, data_2, test_in);
 [nlml2 dnlm2 lat2] = vgpt(inf_out, data_2, test_in);
 
 %Set parameters for the prediction, using the final state from the seed
 predict_in = struct('hyp', train_out.hyp, 'z', train_out.z);
-Sd = convert(inf_out.qx.s); Sd = Sd(:,:,end);
-p_3 = struct('m', inf_out.qx.m(:, end), 'Sd', Sd);
+Sd = convert(inf_out.s); Sd = Sd(:,:,end);
+p_3 = struct('m', inf_out.m(:, end), 'Sd', Sd);
 data_3 = struct('u', 0);
 %Analytically Predict-----------
+keyboard
 first_3 = vgpt(p_3, data_3, predict_in);
 %----------
-[Sd, So] = convert(inf_out.qx.s);
-bootstrap_series = struct('m',{[inf_out.qx.m first_3.m]}, 'Sd', ...
+[Sd, So] = convert(inf_out.s);
+bootstrap_series = struct('m',{[inf_out.m first_3.m]}, 'Sd', ...
                           {cat(3, Sd, first_3.Sd)}, 'So', {cat(3, So, first_3.So)});
 in = first_3;
 for n = 1:T_p2-T_p - 1
@@ -121,7 +119,6 @@ for n = 1:T_p2-T_p - 1
     'Sd', {cat(3, bootstrap_series.Sd, out.Sd)}, 'So', {cat(3, bootstrap_series.So, out.So)});
     in = struct('m', out.m, 'Sd', out.Sd);
 end
-keyboard
 %---------------------------------------------------------------------------
 %Plotting the training timeseries
 plot_grid = [-3:0.1:2];
@@ -218,6 +215,8 @@ pred_lat = lat;
 Sd = bootstrap_series.Sd;
 So = bootstrap_series.So;
 
+
+
 %Map back from latent space to observation space
 adj_mean = conv_lat(pred_lat.C, pred_out.m);
 
@@ -243,11 +242,12 @@ grid on;
 %with a predicted output
 
 subplot(2, 2, 4);
+%Test Timeseries--------------------------------------------------
 
 hold on;
 %Uncertainty in where we are is used
 for t=1:T_p2, to_plot_Sd_2(t) = sqrt(pred_lat.C(1,1:E)*Sd(:,:,t)* ...
-      pred_lat.C(1,1:E)' + lat.R^2);end
+      pred_lat.C(1,1:E)' + lat.R);end
 %to_plot_Sd = reshape(Sd(1, 1, 1:T_p2), 1, T_p2);
 %to_plot_Sd_2 = sqrt(pred_lat.C(1,1:E) * to_plot_Sd * pred_lat.C(1,1:E)' + lat.R.^2);
 hold on; 

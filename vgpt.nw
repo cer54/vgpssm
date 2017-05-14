@@ -947,33 +947,33 @@ function qx_opt = predict_forwards(hyp, qx, z, u)
 %timeseries, analytically calculate the optimal next step params
 %Fetch the Psi1,2 values by calling Psi with 4 arguments
 [Psi1, Psi2] = Psi(hyp, qx, z, u);
-E = size(qx, 2); [M, F, E] = size(z); 
+E = size(qx, 2); [M, F, E] = size(z); Q = zeros(E, E);
+b3 = zeros(E,1);
 for e = 1:E
   K(:,:,e) = exp(-maha(z(:,:,e),[],diag(exp(-2*hyp(e).l)))/2) + ...
       1e-6*eye(M);
   w = (K(:,:,e)+Psi2(:,:,e))\Psi1(:,e);
   iL = diag(exp(-hyp(e).l)); L2 = diag(exp(2*hyp(e).l));
-  b3 = zeros(E,1); 
-  b4 = zeros(1);
+
   for n = 1:size(qx,2)
     t = size(qx.m, 2); Sd = zeros(F,F);
     Sd(1:E,1:E) = qx(n).Sd(:,:,t);          % covariance in top left corner
     r1 = prod(diag(chol(eye(F)+iL*Sd*iL)));                        % sqrt det
-    %  s = bsxfun(@minus, z(:,:,e), [qx(n).m(:,t)'
-    %                          u{n}(t,:)]); 
     s = bsxfun(@minus, z(:,:,e), [qx(n).m(:,t)' u{n}(t,:)]); 
     a = s/(L2+Sd);
-    b3(e,1) = w'*(exp(-sum(a.*s,2)/2)/r1); b4 = zeros(M,E);
-    for f=1:E, b4(:,f) = a(:,f).*exp(-sum(a.*s,2)/2)/r1;end
-    b5(e, :) = w'*b4;
+    b3(e,1) = w'*(exp(-sum(a.*s,2)/2)/r1); 
+    b4 = (bsxfun(@times, a(:,1:E), exp(-sum(a.*s,2)/2)/r1))'*w;
+    b5(:, e) = b4;
+    Q(e, e) = exp(2 * hyp(e).pn);
   end
 end
 qx_opt(n).m = b3;
 qx_opt(n).So = qx.Sd*b5;
-qx_opt(n).Sd = exp(2*hyp(e).pn) + qx_opt(n).So * inv(qx(n).Sd(:, :, end)) ...
+qx_opt(n).Sd = Q + qx_opt(n).So * inv(qx(n).Sd(:, :, end)) ...
     * qx_opt(n).So';
 
 @
 
+@
 \end{document}
 
