@@ -969,8 +969,8 @@ for e = 1:E
 end
 qx_opt(n).m = b3;
 qx_opt(n).So = qx.Sd*b5;
-qx_opt(n).Sd = Q + qx_opt(n).So * inv(qx(n).Sd(:, :, end)) ...
-    * qx_opt(n).So';
+qx_opt(n).Sd = Q + qx_opt(n).So' * inv(qx(n).Sd(:, :, end)) ...
+    * qx_opt(n).So;
 
 @
 
