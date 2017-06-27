@@ -344,29 +344,33 @@ not take on the simple form $\cal L^*$, but must be calculated in full from eq.~
 <<likelihood>>=
 function [L, R_out, C_out, dm, dS] = likelihood(y, qx, test)
 persistent C R
-D = size(y{1},2); E = size(qx(1).m,1); T = sum(arrayfun(@(x)size(x.m,2),qx)); 
-N = size(y,2); yy = zeros(D); ym = zeros(D, E+1); mm = zeros(E+1); d = zeros(1,N);
-for n = 1:N
-  m = [qx(n).m' ones(size(qx(n).m,2),1)]; mm = mm + m'*m; ym = ym + y{n}'*m;
-  yy = yy + y{n}'*y{n}; mm(1:E,1:E) = mm(1:E,1:E) + sum(qx(n).Sd,3); 
-end
-if test %Use provided C, R
-  for n=1:N
-    w = y{n}' - C*[qx(n).m; ones(1,size(qx(n).m,2))];
-    d(1,n) = sum(sum(inv(R).*(w*w' + C(:,1:E)*sum(qx(n).Sd,3)*C(:,1:E)')));
-  end
-  L = -D*T*log(2*pi)/2 - T*sum(log(diag(chol(R))))/2 - sum(d)/2;    
-else    
-  C = ym/mm; R = (yy - C*ym')/T;
-  L = -D*T*(1+log(2*pi))/2 - T*sum(log(diag(chol(R))));          % log likelihood
-end  
-if nargout > 3                                        % do we want derivatives?
-  dm = cell(N,1);
-  for n = 1:N,
-    dm{n} = C(:,1:E)'/R*(y{n}'-C*[qx(n).m; ones(1,size(qx(n).m,2))]);
-  end
-  dS = -C(:,1:E)'/R*C(:,1:E)/2;            % all dS identical, return once only
-  C_out = C; R_out = R;
+if nargin < 3
+    L = C;, R_out = R; %If we just want to fetch the stored C,R.
+else
+    D = size(y{1},2); E = size(qx(1).m,1); T = sum(arrayfun(@(x)size(x.m,2),qx)); 
+    N = size(y,2); yy = zeros(D); ym = zeros(D, E+1); mm = zeros(E+1); d = zeros(1,N);
+    for n = 1:N
+        m = [qx(n).m' ones(size(qx(n).m,2),1)]; mm = mm + m'*m; ym = ym + y{n}'*m;
+        yy = yy + y{n}'*y{n}; mm(1:E,1:E) = mm(1:E,1:E) + sum(qx(n).Sd,3); 
+    end
+    if test %Use provided C, R
+        for n=1:N
+            w = y{n}' - C*[qx(n).m; ones(1,size(qx(n).m,2))];
+            d(1,n) = sum(sum(inv(R).*(w*w' + C(:,1:E)*sum(qx(n).Sd,3)*C(:,1:E)')));
+        end
+        L = -D*T*log(2*pi)/2 - T*sum(log(diag(chol(R))))/2 - sum(d)/2;    
+    else    
+        C = ym/mm; R = (yy - C*ym')/T;
+        L = -D*T*(1+log(2*pi))/2 - T*sum(log(diag(chol(R))));          % log likelihood
+    end  
+    if nargout > 3                                        % do we want derivatives?
+        dm = cell(N,1);
+        for n = 1:N,
+            dm{n} = C(:,1:E)'/R*(y{n}'-C*[qx(n).m; ones(1,size(qx(n).m,2))]);
+        end
+        dS = -C(:,1:E)'/R*C(:,1:E)/2;            % all dS identical, return once only
+        C_out = C; R_out = R;
+    end
 end
 @
 
@@ -440,14 +444,27 @@ elseif isfield(data, 'y')%We are in the test regime, inferring the relevant late
   for n = 1:N, [qx(n).Sd qx(n).So] = convert(p(n).s); end % convert covariance
   test = 1;
   predict = 0;
-else %We are in the case where we are predicting the next latent space point.
+else %We are in the case where we are predicting the next real-space timeseries.
   N = length(p); z = x.z; [M, F, E] = size(z); hyp = x.hyp; qx = p;
-  u = arrayfun(@(x)(x.u),data,'UniformOutput',false); 
-  test = 1;
-  predict = 1;
+  u = arrayfun(@(x)(x.u),data,'UniformOutput',false); [C R] = likelihood();
+  test = 1; D = size(C, 1); for n=1:N, [qx(n).Sd qx(n).So] = convert(p(n).s); end 
+  predict = 1; for n=1:N, qx(n).Sd = qx(n).Sd(:,:,end); qx(n).m = qx(n).m(:,end);end
 end
 if test & predict
-   out1 = predict_forwards(hyp, qx, z, u); out2 = []; out3 = [];
+   for n=1:N %Predict full timeseries into the future
+       out1(n).m = zeros(D, size(u{n},1)); out1(n).So = zeros(D, D, size(u{n},1));
+       out1(n).Sd = zeros(D, D, size(u{n},1)); Ce = C(:,1:E);
+       for t=1:size(u{n},1) %As long as we have control inputs
+           if t==1
+               pr = predict_forwards(hyp, qx(n), z, u{n}(1,:));
+           else           
+               pr = predict_forwards(hyp, struct('m', pr.m,...
+                                                 'Sd', pr.Sd),z,u{n}(t,:));
+           end
+           out1(n).m(:,t) = C*[pr.m;1]; out1(n).So(:,:,t) = Ce*pr.So*Ce';
+	   out1(n).Sd(:,:,t) = Ce*pr.Sd*Ce' + R;
+       end
+   end
 else
   <<lower bound>>
   <<bound derivatives>>
@@ -499,15 +516,14 @@ end
 %   z     M x F x E  inducing inputs
 
 %Given three arguments, and no observations,
-%we are predicting the next state given
-%the previous state. We can do this analytically.
+%we are predicting the real-space observations
+%expected with the given control inputs
 
-% qx         1 x N    struct array for Gaussian q(x) distribution
-%   m       E x 1    mean of the last state
-%   So      E x E    pairwise marginal covariance between last two states
-%   Sd      E x E    marginal covariance of last state
+% qx        1 x N    struct array for Gaussian q(x) distribution
+%   m       E x T_n  mean of the inferred latent states
+%   s    2ExE x T_n  representation of covariance of the inferred latent states
 % data      1 x N    data struct    
-%   u       1 x U    cell array of control input for prediction
+%   u     T_p x U    cell array of control inputs for prediction
 % x       
 %   hyp     1 x E    GP hyperparameter struct
 %     l     F x 1    log length scale
@@ -555,7 +571,6 @@ else
     <<expectation derivatives>>
   end
 end
-
 @
 
 \subsubsection*{The $\Psi_1$ and $\Psi_2$ expectations}
@@ -941,7 +956,6 @@ after collecting the contributions from all $z$.
 @
 
 <<prediction>>=
-
 function qx_opt = predict_forwards(hyp, qx, z, u)
 %Given a timeseries corresponding to latent states of an observed
 %timeseries, analytically calculate the optimal next step params
@@ -954,22 +968,20 @@ for e = 1:E
       1e-6*eye(M);
   w = (K(:,:,e)+Psi2(:,:,e))\Psi1(:,e);
   iL = diag(exp(-hyp(e).l)); L2 = diag(exp(2*hyp(e).l));
-
-  for n = 1:size(qx,2)
-    t = size(qx.m, 2); Sd = zeros(F,F);
-    Sd(1:E,1:E) = qx(n).Sd(:,:,t);          % covariance in top left corner
-    r1 = prod(diag(chol(eye(F)+iL*Sd*iL)));                        % sqrt det
-    s = bsxfun(@minus, z(:,:,e), [qx(n).m(:,t)' u{n}(t,:)]); 
-    a = s/(L2+Sd);
-    b3(e,1) = w'*(exp(-sum(a.*s,2)/2)/r1); 
-    b4 = (bsxfun(@times, a(:,1:E), exp(-sum(a.*s,2)/2)/r1))'*w;
-    b5(:, e) = b4;
-    Q(e, e) = exp(2 * hyp(e).pn);
-  end
+  Sd = zeros(F,F);
+  Sd(1:E,1:E) = qx.Sd(:,:,1);          % covariance in top left corner
+  r1 = prod(diag(chol(eye(F)+iL*Sd*iL)));                        % sqrt det
+  s = bsxfun(@minus, z(:,:,e), [qx.m(:,1)' u(1,:)]); 
+  a = s/(L2+Sd);
+  b3(e,1) = w'*(exp(-sum(a.*s,2)/2)/r1); 
+  b4 = (bsxfun(@times, a(:,1:E), exp(-sum(a.*s,2)/2)/r1))'*w;
+  b5(:, e) = b4;
+  Q(e, e) = exp(2 * hyp(e).pn);
 end
-qx_opt(n).m = b3;
-qx_opt(n).So = qx.Sd*b5;
-qx_opt(n).Sd = Q + b5'*qx(n).Sd(:, :, end)*b5;
+
+qx_opt.m = b3;
+qx_opt.So = qx.Sd*b5;
+qx_opt.Sd = Q + b5'*qx.Sd(:, :, end)*b5;
 
 @
 
