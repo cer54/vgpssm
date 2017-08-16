@@ -281,7 +281,7 @@ else
             w = y{n}' - C*[qx(n).m; ones(1,size(qx(n).m,2))];
             d(1,n) = sum(sum(inv(R).*(w*w' + C(:,1:E)*sum(qx(n).Sd,3)*C(:,1:E)')));
         end
-        L = -D*T*log(2*pi)/2 - T*sum(log(diag(chol(R))))/2 - sum(d)/2;    
+        L = -D*T*log(2*pi)/2 - T*sum(log(diag(chol(R)))) - sum(d)/2;    
     else    
         C = ym/mm; R = (yy - C*ym')/T;
         L = -D*T*(1+log(2*pi))/2 - T*sum(log(diag(chol(R))));          % log likelihood
