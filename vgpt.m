@@ -286,13 +286,13 @@ else
         C = ym/mm; R = (yy - C*ym')/T;
         L = -D*T*(1+log(2*pi))/2 - T*sum(log(diag(chol(R))));          % log likelihood
     end  
+    C_out = C; R_out = R;
     if nargout > 3                                        % do we want derivatives?
         dm = cell(N,1);
         for n = 1:N,
             dm{n} = C(:,1:E)'/R*(y{n}'-C*[qx(n).m; ones(1,size(qx(n).m,2))]);
         end
         dS = -C(:,1:E)'/R*C(:,1:E)/2;            % all dS identical, return once only
-        C_out = C; R_out = R;
     end
 end
 function [Sd, So] = convert(s)
